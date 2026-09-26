@@ -1,0 +1,84 @@
+# Builds Bubbels for Windows and macOS, and publishes a release for version tags.
+#
+# No Mac needed: GitHub has them. The Windows job compiles with the C# compiler that
+# ships with Windows itself; the macOS job with swiftc from the Xcode tools.
+#
+# Two ways to start it:
+#   - by hand: Actions tab -> Build -> Run workflow (builds, keeps the files as artifacts)
+#   - by pushing a version tag:  git tag v1.0.1 && git push origin v1.0.1
+
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build Bubbels.exe and Bubbels-setup.exe
+        shell: cmd
+        run: build.cmd
+
+      - name: Name the files after the version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || VERSION="dev"
+          mkdir out
+          cp bin/Bubbels-setup.exe "out/Bubbels-$VERSION-setup.exe"
+          cp bin/Bubbels.exe "out/Bubbels-$VERSION-portable.exe"
+          ls -la out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bubbels-windows
+          path: out/*
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Which Swift?
+        run: swiftc --version
+
+      - name: Build Bubbels.app (universal), zip and dmg
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || VERSION="0.0.0-dev"
+          bash mac/build.sh "$VERSION"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bubbels-mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+
+  # One job publishes everything. Letting both build jobs publish would race and can
+  # leave two releases with half the files each.
+  release:
+    needs: [windows, mac]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - run: ls -laR artifacts
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/**/*
+          draft: false
+          generate_release_notes: true
