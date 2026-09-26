@@ -15,6 +15,19 @@ namespace Bubbels
             set { Write("alwaysOnTop", value ? "1" : "0"); }
         }
 
+        public static bool AutoUpdate
+        {
+            get { return Read("autoUpdate", "1") == "1"; }
+            set { Write("autoUpdate", value ? "1" : "0"); }
+        }
+
+        /// <summary>The version that ran last time, to say "updated" once after an update.</summary>
+        public static string LastVersion
+        {
+            get { return Read("lastVersion", ""); }
+            set { Write("lastVersion", value); }
+        }
+
         private static string Read(string name, string fallback)
         {
             try

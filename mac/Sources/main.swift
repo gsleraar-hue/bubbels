@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let manager = BubbleManager()
     private var hotKeyRef: EventHotKeyRef?
+    private let updater = Updater()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -26,6 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         registerHotKey()
+
+        updater.onNewer = { [weak self] version, url in self?.offerUpdate(version, url, manual: false) }
+        updater.start()
 
         // Moving and hiding other apps' windows needs Accessibility access.
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -89,8 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
+        menu.addItem(item(T("Check for updates…", "Zoeken naar updates…"), #selector(checkForUpdates)))
+
         menu.addItem(.separator())
-        menu.addItem(item(T("Quit Bubbels", "Stop Bubbels"), #selector(quit)))
+        menu.addItem(item(T("Quit Bubbels", "Stop Bubbels") + " (\(Updater.current))", #selector(quit)))
     }
 
     private func item(_ title: String, _ action: Selector) -> NSMenuItem {
@@ -120,6 +126,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             else { try SMAppService.mainApp.register() }
         } catch {
             manager.notice?(T("Could not change the login item: ", "Kon het inlogonderdeel niet wijzigen: ") + error.localizedDescription)
+        }
+    }
+
+    // MARK: updates
+
+    @objc private func checkForUpdates() {
+        updater.onNewer = { [weak self] version, url in self?.offerUpdate(version, url, manual: true) }
+        updater.check(manual: true, upToDate: { [weak self] in
+            self?.manager.notice?(T("Bubbels is up to date.", "Bubbels is bijgewerkt.") + " (\(Updater.current))")
+        }, failed: { [weak self] message in
+            self?.manager.notice?(T("Could not check for updates: ", "Kon niet zoeken naar updates: ") + message)
+        })
+        // Later automatic checks should respect "skip this version" again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+            self?.updater.onNewer = { version, url in self?.offerUpdate(version, url, manual: false) }
+        }
+    }
+
+    private func offerUpdate(_ version: String, _ url: URL, manual: Bool) {
+        let skipped = UserDefaults.standard.string(forKey: "skippedVersion")
+        if !manual && skipped == version { return }
+
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = T("Bubbels \(version) is available", "Bubbels \(version) is beschikbaar")
+        alert.informativeText = T(
+            "You have \(Updater.current). Windows in bubbles are given back before the update. " +
+            "macOS may ask for Accessibility access again afterwards.",
+            "Je hebt \(Updater.current). Vensters in bubbels komen eerst terug. " +
+            "macOS kan daarna opnieuw om toegang via Toegankelijkheid vragen.")
+        alert.addButton(withTitle: T("Update now", "Nu bijwerken"))
+        alert.addButton(withTitle: T("Later", "Later"))
+        alert.addButton(withTitle: T("Skip this version", "Deze versie overslaan"))
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            updater.install(from: url) { [weak self] message in
+                self?.manager.notice?(T("Updating failed: ", "Bijwerken mislukt: ") + message)
+            }
+        case .alertThirdButtonReturn:
+            UserDefaults.standard.set(version, forKey: "skippedVersion")
+        default:
+            break
         }
     }
 

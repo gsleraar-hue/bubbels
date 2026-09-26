@@ -555,8 +555,13 @@ namespace Bubbels
                 bubble.SetExpanded(true);
                 // With bubbles always on top, the open window floats too, so the pair stays
                 // together; otherwise it is an ordinary window brought to the front.
+                // Move and size it while it is still hidden, then show it with ShowWindow. Apps
+                // built on WebView2 or Chromium (the new Outlook, Teams) stop drawing when they
+                // are hidden and only start again on the WM_SHOWWINDOW that ShowWindow sends;
+                // SetWindowPos(SWP_SHOWWINDOW) skips it and leaves them black.
                 Native.SetWindowPos(hwnd, Bubble.AlwaysOnTop ? Native.HWND_TOPMOST : IntPtr.Zero,
-                                    x, y, w, h, Native.SWP_SHOWWINDOW);
+                                    x, y, w, h, Native.SWP_NOACTIVATE);
+                if (!Native.IsWindowVisible(hwnd)) Native.ShowWindow(hwnd, Native.SW_SHOW);
 
                 // Windows 10/11 windows have invisible resize borders; line up what you can see.
                 Native.RECT frame = Native.GetVisibleFrame(hwnd);
@@ -565,6 +570,15 @@ namespace Bubbels
                 if (dx != 0 || dy != 0)
                     Native.SetWindowPos(hwnd, IntPtr.Zero, x + dx, y + dy, 0, 0,
                                         Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+
+                // A one-pixel size wobble makes such apps lay out and paint their content again.
+                Native.RECT now;
+                if (Native.GetWindowRect(hwnd, out now))
+                {
+                    const uint keep = Native.SWP_NOMOVE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE;
+                    Native.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, now.Width + 1, now.Height, keep);
+                    Native.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, now.Width, now.Height, keep);
+                }
 
                 DeleteTab(hwnd);
                 Native.SetForegroundWindow(hwnd);

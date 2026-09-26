@@ -36,6 +36,18 @@ Grab the latest version from [Releases](../../releases/latest):
   cover them.
 - The interface is in English, or in Dutch when your system is.
 
+## Updates
+
+Bubbels checks GitHub for a new version shortly after it starts and every six hours.
+
+- **Windows (installed):** with *Update automatically* on (the default), a new version installs
+  itself silently, but only while no window is in a bubble, so it never pulls a window out from
+  under you. Otherwise the menu shows *Update to x.y.z*. The portable exe only points you to
+  the download.
+- **macOS:** Bubbels asks before updating (*Update now*, *Later*, *Skip this version*) and then
+  replaces itself. macOS may ask for Accessibility access again after an update.
+- Either way: *Check for updates* in the menu.
+
 ## Windows notes
 
 - Windows of programs that run as administrator cannot be bubbled.
@@ -60,7 +72,9 @@ Grab the latest version from [Releases](../../releases/latest):
 **Windows:** run `build.cmd`. It uses the `csc.exe` that ships with the .NET Framework on every
 Windows machine: no SDK, no packages. Output: `bin\Bubbels.exe` and `bin\Bubbels-setup.exe`.
 `Bubbels.exe --selftest <hwnd> [hwnd]` walks windows through bubble, open, switch, fold and
-release, and writes each state to the log.
+release, and writes each state to the log. `Bubbels.exe --check-update` logs what the updater
+sees. When you release, bump the version in `src/AssemblyInfo.cs` and `setup/Installer.cs`; the
+workflow refuses a tag that does not match.
 
 **macOS:** run `mac/build.sh 1.0.0` with the Xcode command line tools installed. Output in
 `dist/`.

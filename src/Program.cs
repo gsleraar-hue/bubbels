@@ -32,6 +32,18 @@ namespace Bubbels
                 Log.Exception("error in message loop", e.Exception);
             };
 
+            // "--check-update" logs what the updater sees, without installing anything.
+            if (args.Length == 1 && args[0] == "--check-update")
+            {
+                try
+                {
+                    Updater.Release r = Updater.FindNewer();
+                    Log.Write("check-update: current {0}, newer: {1}", Updater.Current,
+                              r == null ? "none" : r.Tag + " " + r.SetupUrl);
+                }
+                catch (Exception ex) { Log.Exception("check-update", ex); }
+                return;
+            }
             bool isFirst;
             using (var single = new Mutex(true, "Bubbels.SingleInstance", out isFirst))
             {
@@ -72,6 +84,12 @@ namespace Bubbels
         private readonly ToolStripMenuItem _releaseAllItem;
         private readonly ToolStripMenuItem _autostartItem;
         private readonly ToolStripMenuItem _onTopItem;
+        private readonly ToolStripMenuItem _autoUpdateItem;
+        private readonly ToolStripMenuItem _updateItem;
+        private readonly ToolStripMenuItem _checkItem;
+        private System.Windows.Forms.Timer _updateTimer;
+        private Updater.Release _pendingUpdate;
+        private int _checking;
         private bool _hotkeyOk;
 
         public TrayContext()
@@ -86,6 +104,13 @@ namespace Bubbels
 
             _releaseAllItem = new ToolStripMenuItem(Strings.T("Release all bubbles", "Alle bubbels terugzetten"), null, delegate { _bubbles.ReleaseAll(); });
             Bubble.AlwaysOnTop = Settings.AlwaysOnTop;
+            _autoUpdateItem = new ToolStripMenuItem(Strings.T("Update automatically", "Automatisch bijwerken"), null, delegate
+            {
+                Settings.AutoUpdate = !Settings.AutoUpdate;
+                _autoUpdateItem.Checked = Settings.AutoUpdate;
+            }) { Checked = Settings.AutoUpdate };
+            _checkItem = new ToolStripMenuItem(Strings.T("Check for updates", "Zoeken naar updates"), null, delegate { CheckForUpdate(true); });
+            _updateItem = new ToolStripMenuItem("", null, delegate { InstallPendingUpdate(); }) { Visible = false, Font = new Font(SystemFonts.MenuFont, FontStyle.Bold) };
             _onTopItem = new ToolStripMenuItem(Strings.T("Bubbles always on top", "Bubbels altijd bovenop"), null, delegate
             {
                 Bubble.AlwaysOnTop = !Bubble.AlwaysOnTop;
@@ -103,6 +128,9 @@ namespace Bubbels
             menu.Items.Add(_releaseAllItem);
             menu.Items.Add(_onTopItem);
             menu.Items.Add(_autostartItem);
+            menu.Items.Add(_autoUpdateItem);
+            menu.Items.Add(_checkItem);
+            menu.Items.Add(_updateItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem(Strings.T("Quit", "Afsluiten"), null, delegate { Quit(); }));
             menu.Opening += delegate
@@ -138,12 +166,20 @@ namespace Bubbels
             SystemEvents.SessionEnding += OnSessionEnding;
 
             ListenForQuitSignal();
+            StartUpdateChecks();
             _hotkeyOk = Native.RegisterHotKey(_window.Handle, HotkeyId, HotkeyMods, (uint)HotkeyKey);
             if (!_hotkeyOk) Log.Write("hotkey {0} is already taken", HotkeyText);
             UpdateTooltip();
 
+            string version = Updater.Current.ToString(3);
+            string previous = Settings.LastVersion;
+            if (previous != version) Settings.LastVersion = version;
+            bool justUpdated = previous.Length > 0 && previous != version;
+
             string seen = Path.Combine(Program.DataFolder, "welcome-seen");
-            if (!_hotkeyOk)
+            if (justUpdated)
+                Balloon(Strings.T("Bubbels has been updated to version ", "Bubbels is bijgewerkt naar versie ") + version + ".");
+            else if (!_hotkeyOk)
                 Balloon(HotkeyText + Strings.T(" is already used by another program. Pick windows from this icon instead.",
                                              " is al in gebruik door een ander programma. Kies vensters via dit icoon."));
             else if (!File.Exists(seen))
@@ -260,6 +296,104 @@ namespace Bubbels
         private EventWaitHandle _quitSignal;
         private Control _invoker;
         private bool _quitting;
+
+        // ----------------------------------------------------------------- updates
+
+        private void StartUpdateChecks()
+        {
+            // First look shortly after start (not during logon rush), then every six hours.
+            _updateTimer = new System.Windows.Forms.Timer { Interval = 30 * 1000 };
+            _updateTimer.Tick += delegate
+            {
+                _updateTimer.Interval = 6 * 60 * 60 * 1000;
+                CheckForUpdate(false);
+            };
+            _updateTimer.Start();
+        }
+
+        private void CheckForUpdate(bool manual)
+        {
+            if (Interlocked.CompareExchange(ref _checking, 1, 0) != 0) return;
+            var worker = new Thread(delegate ()
+            {
+                Updater.Release found = null;
+                Exception error = null;
+                try { found = Updater.FindNewer(); }
+                catch (Exception ex) { error = ex; }
+                finally { Interlocked.Exchange(ref _checking, 0); }
+
+                try { _invoker.BeginInvoke(new MethodInvoker(delegate { OnUpdateChecked(found, error, manual); })); }
+                catch { }
+            });
+            worker.IsBackground = true;
+            worker.Start();
+        }
+
+        private void OnUpdateChecked(Updater.Release found, Exception error, bool manual)
+        {
+            if (_quitting) return;
+            if (error != null)
+            {
+                Log.Write("update check failed: {0}", error.Message);
+                if (manual) Balloon(Strings.T("Could not check for updates: ", "Kon niet zoeken naar updates: ") + error.Message);
+                return;
+            }
+            if (found == null)
+            {
+                if (manual) Balloon(Strings.T("Bubbels is up to date.", "Bubbels is bijgewerkt.") + " (" + Updater.Current.ToString(3) + ")");
+                return;
+            }
+
+            Log.Write("update available: {0}", found.Tag);
+            _pendingUpdate = found;
+            _updateItem.Text = Updater.IsInstalled
+                ? Strings.T("Update to ", "Bijwerken naar ") + found.Tag
+                : Strings.T("Download version ", "Versie downloaden: ") + found.Tag;
+            _updateItem.Visible = true;
+
+            // Silent update only when it cannot disturb: installed copy, nothing in a bubble.
+            if (Updater.IsInstalled && Settings.AutoUpdate && _bubbles.Count == 0 && found.SetupUrl != null)
+            {
+                InstallPendingUpdate();
+                return;
+            }
+            Balloon(Strings.T("Version " + found.Tag + " is available. Choose it in the menu to update.",
+                              "Versie " + found.Tag + " is beschikbaar. Kies bijwerken in het menu."));
+        }
+
+        private void InstallPendingUpdate()
+        {
+            Updater.Release release = _pendingUpdate;
+            if (release == null) return;
+            if (!Updater.IsInstalled || release.SetupUrl == null)
+            {
+                Process.Start(Updater.ReleasesPage);
+                return;
+            }
+
+            _updateItem.Enabled = false;
+            _updateItem.Text = Strings.T("Downloading ", "Bezig met downloaden: ") + release.Tag + "...";
+            var worker = new Thread(delegate ()
+            {
+                try { Updater.Install(release); }   // the setup will ask us to quit
+                catch (Exception ex)
+                {
+                    Log.Exception("update", ex);
+                    try
+                    {
+                        _invoker.BeginInvoke(new MethodInvoker(delegate
+                        {
+                            _updateItem.Enabled = true;
+                            _updateItem.Text = Strings.T("Update to ", "Bijwerken naar ") + release.Tag;
+                            Balloon(Strings.T("Updating failed: ", "Bijwerken mislukt: ") + ex.Message);
+                        }));
+                    }
+                    catch { }
+                }
+            });
+            worker.IsBackground = true;
+            worker.Start();
+        }
 
         private void ListenForQuitSignal()
         {

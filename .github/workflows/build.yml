@@ -24,6 +24,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The Windows app compares its own version with the latest release to update
+      # itself, so a tag that does not match the version in the code would loop.
+      - name: Tag matches the version in the code
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          grep -q "AssemblyVersion(\"$VERSION.0\")" src/AssemblyInfo.cs || { echo "src/AssemblyInfo.cs is not $VERSION"; exit 1; }
+          grep -q "Version = \"$VERSION\"" setup/Installer.cs || { echo "setup/Installer.cs is not $VERSION"; exit 1; }
+
       - name: Build Bubbels.exe and Bubbels-setup.exe
         shell: cmd
         run: build.cmd

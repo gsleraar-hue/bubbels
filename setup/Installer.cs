@@ -29,7 +29,7 @@ namespace BubbelsSetup
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Bubbels");
 
         private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Bubbels";
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
 
         public static bool IsInstalled() { return File.Exists(ExePath); }
 
