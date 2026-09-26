@@ -28,11 +28,12 @@ echo [2/2] Bubbels-setup.exe
 "%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ ^
   /win32icon:"%ROOT%build\bubbels.ico" ^
   /resource:"%ROOT%bin\Bubbels.exe",Bubbels.exe ^
+  /resource:"%ROOT%build\bubbels.ico",bubbels.ico ^
   /out:"%ROOT%bin\Bubbels-setup.exe" ^
   /reference:System.dll ^
   /reference:System.Drawing.dll ^
   /reference:System.Windows.Forms.dll ^
-  "%ROOT%setup\*.cs" "%ROOT%src\Autostart.cs" "%ROOT%src\Strings.cs"
+  "%ROOT%setup\*.cs" "%ROOT%src\Autostart.cs" "%ROOT%src\Strings.cs" "%ROOT%src\Modern.cs"
 if errorlevel 1 goto fail
 
 echo.

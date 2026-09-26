@@ -78,6 +78,7 @@ namespace Bubbels
 
             _icon = WindowIcons.Get(target, (int)(Diameter * 0.6f));
 
+            Modern.Apply(_menu);
             _toggleItem = new ToolStripMenuItem(Strings.T("Open", "Openen"), null, delegate { Raise(Clicked); });
             _menu.Items.Add(_toggleItem);
             _menu.Items.Add(new ToolStripMenuItem(Strings.T("Turn back into a normal window", "Terugzetten als gewoon venster"), null, delegate { Raise(ReleaseRequested); }));

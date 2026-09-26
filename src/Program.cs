@@ -122,6 +122,7 @@ namespace Bubbels
             _autostartItem = new ToolStripMenuItem(Strings.T("Start with Windows", "Starten met Windows"), null, ToggleAutostart);
 
             var menu = new ContextMenuStrip();
+            Modern.Apply(menu);
             menu.Items.Add(_pickItem);
             menu.Items.Add(new ToolStripMenuItem(Strings.T("Bubble the active window: ", "Actief venster bubbelen: ") + HotkeyText) { Enabled = false });
             menu.Items.Add(new ToolStripSeparator());
@@ -253,7 +254,10 @@ namespace Bubbels
         {
             if (e.Category == UserPreferenceCategory.General || e.Category == UserPreferenceCategory.Color ||
                 e.Category == UserPreferenceCategory.VisualStyle)
+            {
+                Modern.Refresh();
                 _bubbles.Rerender();
+            }
         }
 
         private void OnSessionEnding(object sender, SessionEndingEventArgs e)
